@@ -24,25 +24,25 @@ const register = async (req, res) => {
         const saltRounds = 10;
         const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-        // Insérer le nouvel utilisateur avec les ENUM
+        // Insérer le nouvel utilisateur avec les données biométriques
         const newUser = await pool.query(
-            `INSERT INTO users (
-                full_name, 
-                email, 
-                password, 
-                phone_number, 
-                biometric_data, 
-                role, 
-                status, 
-                created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6::user_role_enum, $7::user_status_enum, NOW()) 
-            RETURNING id, full_name, email, role, status`,
+            `SELECT insert_user_with_biometric($1, $2, $3, $4, $5, $6::user_role_enum, $7::user_status_enum)`,
             [fullName, email, hashedPassword, phoneNumber, biometricData, 'user', 'active']
         );
 
+        // Récupérer les informations de l'utilisateur créé
+        const userResult = await pool.query(
+            `SELECT id, first_name, last_name, email, role, status 
+             FROM users 
+             WHERE id = $1`,
+            [newUser.rows[0].insert_user_with_biometric]
+        );
+
+        const user = userResult.rows[0];
+
         // Générer un token JWT
         const token = jwt.sign(
-            { userId: newUser.rows[0].id },
+            { userId: user.id },
             process.env.JWT_SECRET,
             { expiresIn: '24h' }
         );
@@ -52,11 +52,11 @@ const register = async (req, res) => {
             message: 'Inscription réussie',
             data: {
                 user: {
-                    id: newUser.rows[0].id,
-                    fullName: newUser.rows[0].full_name,
-                    email: newUser.rows[0].email,
-                    role: newUser.rows[0].role,
-                    status: newUser.rows[0].status
+                    id: user.id,
+                    fullName: `${user.first_name} ${user.last_name}`,
+                    email: user.email,
+                    role: user.role,
+                    status: user.status
                 },
                 token
             }

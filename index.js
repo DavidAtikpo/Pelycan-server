@@ -38,7 +38,7 @@ const initializeDatabase = async () => {
         
         // Synchroniser les modèles
         await db.sequelize.sync({ 
-            force: true  // Pour la première initialisation
+            force: process.env.NODE_ENV === 'development' // Force uniquement en développement
         });
         console.log('✅ Modèles synchronisés avec la base de données');
     } catch (error) {
@@ -110,8 +110,12 @@ app.use((req, res) => {
 });
 
 // Démarrage du serveur
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Serveur démarré sur le port ${PORT}`);
+    console.log(`Accessible via:`);
+    console.log(`- Local: http://localhost:${PORT}`);
+    console.log(`- Réseau: http://192.168.1.70:${PORT}`);
+    console.log(`- Émulateur Android: http://10.0.2.2:${PORT}`);
 });
 
 // Gestion propre de l'arrêt du serveur
