@@ -16,7 +16,7 @@ router.patch('/professionals/:proId/status', adminController.updateProfessionalS
 router.delete('/professionals/:proId', adminController.deleteProfessional);
 
 // Routes de gestion des cas
-router.get('/cases/unassigned', adminController.getUnassignedCases);
+router.get('/unassigned-cases', adminController.getUnassignedCases);
 router.post('/assignments', adminController.assignCase);
 router.get('/professionals/available', adminController.getAvailableProfessionals);
 

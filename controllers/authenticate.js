@@ -24,10 +24,20 @@ const register = async (req, res) => {
         const saltRounds = 10;
         const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-        // Insérer le nouvel utilisateur
+        // Insérer le nouvel utilisateur avec les ENUM
         const newUser = await pool.query(
-            'INSERT INTO users (full_name, email, password, phone_number, biometric_data, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id, full_name, email',
-            [fullName, email, hashedPassword, phoneNumber, biometricData]
+            `INSERT INTO users (
+                full_name, 
+                email, 
+                password, 
+                phone_number, 
+                biometric_data, 
+                role, 
+                status, 
+                created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6::user_role_enum, $7::user_status_enum, NOW()) 
+            RETURNING id, full_name, email, role, status`,
+            [fullName, email, hashedPassword, phoneNumber, biometricData, 'user', 'active']
         );
 
         // Générer un token JWT
@@ -44,7 +54,9 @@ const register = async (req, res) => {
                 user: {
                     id: newUser.rows[0].id,
                     fullName: newUser.rows[0].full_name,
-                    email: newUser.rows[0].email
+                    email: newUser.rows[0].email,
+                    role: newUser.rows[0].role,
+                    status: newUser.rows[0].status
                 },
                 token
             }

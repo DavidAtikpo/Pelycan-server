@@ -1,96 +1,129 @@
-const { pool } = require('../config/dbConfig');
+'use strict';
+
 const bcrypt = require('bcrypt');
 
-class RegisterModel {
-    // Vérifier si un utilisateur existe déjà
-    static async checkUserExists(email) {
-        const query = 'SELECT * FROM users WHERE email = $1';
-        const result = await pool.query(query, [email]);
-        return result.rows.length > 0;
+module.exports = (sequelize, DataTypes) => {
+  const User = sequelize.define('User', {
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true
+    },
+    full_name: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    email: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+      validate: {
+        isEmail: true
+      }
+    },
+    password: {
+      type: DataTypes.STRING,
+      allowNull: true // Permettre null pour les connexions Google
+    },
+    phone_number: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    biometric_data: {
+      type: DataTypes.JSONB,
+      allowNull: true
+    },
+    google_id: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true
+    },
+    role: {
+      type: DataTypes.ENUM('user', 'pro', 'admin'),
+      defaultValue: 'user'
+    },
+    status: {
+      type: DataTypes.ENUM('active', 'pending', 'inactive'),
+      defaultValue: 'active'
     }
-
-    // Créer un nouvel utilisateur
-    static async createUser(userData) {
-        const { fullName, email, password, phoneNumber, biometricData } = userData;
-        
-        try {
-            // Hasher le mot de passe
-            const saltRounds = 10;
-            const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-            // Requête SQL pour insérer un nouvel utilisateur avec UUID
-            const query = `
-                INSERT INTO users (
-                    full_name, 
-                    email, 
-                    password, 
-                    phone_number, 
-                    biometric_data, 
-                    created_at
-                ) 
-                VALUES ($1, $2, $3, $4, $5, NOW()) 
-                RETURNING id, full_name, email
-            `;
-
-            const values = [
-                fullName,
-                email,
-                hashedPassword,
-                phoneNumber,
-                biometricData
-            ];
-
-            const result = await pool.query(query, values);
-            return result.rows[0];
-        } catch (error) {
-            console.error('Erreur lors de la création de l\'utilisateur:', error);
-            throw new Error('Erreur lors de la création de l\'utilisateur');
+  }, {
+    tableName: 'users',
+    timestamps: true,
+    underscored: true,
+    hooks: {
+      beforeCreate: async (user) => {
+        if (user.password) {
+          const saltRounds = 10;
+          user.password = await bcrypt.hash(user.password, saltRounds);
         }
-    }
-
-    // Créer ou mettre à jour un utilisateur Google
-    static async createOrUpdateGoogleUser(googleData) {
-        const { email, fullName, googleId } = googleData;
-
-        try {
-            // Vérifier si l'utilisateur existe déjà
-            const existingUser = await pool.query(
-                'SELECT * FROM users WHERE email = $1',
-                [email]
-            );
-
-            if (existingUser.rows.length > 0) {
-                // Mettre à jour l'utilisateur existant
-                const query = `
-                    UPDATE users 
-                    SET google_id = $1, 
-                        full_name = $2,
-                        updated_at = NOW()
-                    WHERE email = $3
-                    RETURNING id, full_name, email
-                `;
-                const result = await pool.query(query, [googleId, fullName, email]);
-                return result.rows[0];
-            } else {
-                // Créer un nouvel utilisateur avec UUID généré automatiquement
-                const query = `
-                    INSERT INTO users (
-                        full_name, 
-                        email, 
-                        google_id, 
-                        created_at
-                    ) 
-                    VALUES ($1, $2, $3, NOW()) 
-                    RETURNING id, full_name, email
-                `;
-                const result = await pool.query(query, [fullName, email, googleId]);
-                return result.rows[0];
-            }
-        } catch (error) {
-            console.error('Erreur lors de la gestion de l\'utilisateur Google:', error);
-            throw new Error('Erreur lors de la gestion de l\'utilisateur Google');
+      },
+      beforeUpdate: async (user) => {
+        if (user.changed('password')) {
+          const saltRounds = 10;
+          user.password = await bcrypt.hash(user.password, saltRounds);
         }
+      }
     }
-}
+  });
 
-module.exports = RegisterModel;
+  // Méthodes de classe
+  User.checkUserExists = async function(email) {
+    const user = await this.findOne({ where: { email } });
+    return !!user;
+  };
+
+  User.createUser = async function(userData) {
+    const { fullName, email, password, phoneNumber, biometricData } = userData;
+    return await this.create({
+      full_name: fullName,
+      email,
+      password,
+      phone_number: phoneNumber,
+      biometric_data: biometricData
+    });
+  };
+
+  User.createOrUpdateGoogleUser = async function(googleData) {
+    const { email, fullName, googleId } = googleData;
+    
+    const [user, created] = await this.findOrCreate({
+      where: { email },
+      defaults: {
+        full_name: fullName,
+        google_id: googleId,
+        status: 'active'
+      }
+    });
+
+    if (!created && (user.full_name !== fullName || user.google_id !== googleId)) {
+      await user.update({
+        full_name: fullName,
+        google_id: googleId
+      });
+    }
+
+    return user;
+  };
+
+  // Méthodes d'instance
+  User.prototype.toJSON = function() {
+    const values = { ...this.get() };
+    delete values.password;
+    return values;
+  };
+
+  // Associations
+  User.associate = function(models) {
+    User.hasMany(models.Alert, {
+      foreignKey: 'user_id',
+      as: 'alerts'
+    });
+    User.hasMany(models.EmergencyRequest, {
+      foreignKey: 'user_id',
+      as: 'emergencyRequests'
+    });
+    // ... autres associations
+  };
+
+  return User;
+};

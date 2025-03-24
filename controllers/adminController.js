@@ -269,48 +269,135 @@ const adminController = {
   // Obtenir les statistiques globales
   async getStatistics(req, res) {
     try {
+      const timeFrame = req.query.timeFrame || 'month';
+      let timeInterval;
+      
+      // Définir l'intervalle de temps
+      switch(timeFrame) {
+        case 'week':
+          timeInterval = "INTERVAL '7 days'";
+          break;
+        case 'year':
+          timeInterval = "INTERVAL '1 year'";
+          break;
+        default: // month
+          timeInterval = "INTERVAL '30 days'";
+      }
+
       // Statistiques des utilisateurs
       const userStatsQuery = `
         SELECT 
-          COUNT(*) as total_users,
-          COUNT(CASE WHEN last_login > NOW() - INTERVAL '30 days' THEN 1 END) as active_users,
-          COUNT(CASE WHEN last_login <= NOW() - INTERVAL '30 days' OR last_login IS NULL THEN 1 END) as inactive_users,
-          COUNT(CASE WHEN created_at > NOW() - INTERVAL '30 days' THEN 1 END) as new_users
+          COUNT(*) as total,
+          COUNT(CASE WHEN last_login > NOW() - ${timeInterval} THEN 1 END) as active,
+          COUNT(CASE WHEN last_login <= NOW() - ${timeInterval} OR last_login IS NULL THEN 1 END) as inactive,
+          COUNT(CASE WHEN created_at > NOW() - ${timeInterval} THEN 1 END) as new_this_month
         FROM users
         WHERE role = 'user'`;
+
+      // Statistiques des cas
+      const caseStatsQuery = `
+        WITH monthly_data AS (
+          SELECT 
+            to_char(date_trunc('month', created_at), 'Mon') as month,
+            COUNT(*) as count
+          FROM cases
+          WHERE created_at > NOW() - ${timeInterval}
+          GROUP BY date_trunc('month', created_at)
+          ORDER BY date_trunc('month', created_at)
+        ),
+        case_types AS (
+          SELECT 
+            type as name,
+            COUNT(*) as count
+          FROM cases
+          GROUP BY type
+        )
+        SELECT 
+          COUNT(*) as total,
+          COUNT(CASE WHEN priority = 'urgent' THEN 1 END) as urgent,
+          COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress,
+          COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
+          (SELECT json_agg(monthly_data) FROM monthly_data) as monthly_data,
+          (SELECT json_agg(
+            json_build_object(
+              'name', name,
+              'count', count,
+              'color', CASE 
+                WHEN name = 'urgent' THEN '#FF4444'
+                WHEN name = 'normal' THEN '#2196F3'
+                ELSE '#4CAF50'
+              END
+            )
+          ) FROM case_types) as by_type
+        FROM cases`;
 
       // Statistiques des professionnels
       const proStatsQuery = `
         SELECT 
-          COUNT(*) as total_pros,
-          COUNT(CASE WHEN status = 'active' THEN 1 END) as active_pros,
-          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_pros
+          COUNT(*) as total,
+          COUNT(CASE WHEN status = 'active' THEN 1 END) as active,
+          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
+          COALESCE(
+            (SELECT ROUND(AVG(case_count))
+            FROM (
+              SELECT professional_id, COUNT(*) as case_count
+              FROM case_assignments
+              WHERE status = 'in_progress'
+              GROUP BY professional_id
+            ) as case_counts),
+            0
+          ) as average_case_load
         FROM users
         WHERE role = 'pro'`;
 
-      // Statistiques des cas
-      const caseStatsQuery = `
-        SELECT 
-          COUNT(*) as total_cases,
-          COUNT(CASE WHEN status = 'urgent' THEN 1 END) as urgent_cases,
-          COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress_cases,
-          COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_cases
-        FROM cases`;
-
-      const [userStats, proStats, caseStats] = await Promise.all([
+      // Exécuter toutes les requêtes en parallèle
+      const [userStats, caseStats, proStats] = await Promise.all([
         pool.query(userStatsQuery),
-        pool.query(proStatsQuery),
-        pool.query(caseStatsQuery)
+        pool.query(caseStatsQuery),
+        pool.query(proStatsQuery)
       ]);
 
-      res.json({
-        success: true,
-        data: {
-          userStats: userStats.rows[0],
-          proStats: proStats.rows[0],
-          caseStats: caseStats.rows[0]
+      // Fonction utilitaire pour convertir en nombre
+      const toNumber = (value) => {
+        const num = Number(value);
+        return isNaN(num) ? 0 : num;
+      };
+
+      // Formater les données avec conversion explicite des nombres
+      const formattedData = {
+        userStats: {
+          total: toNumber(userStats.rows[0].total),
+          active: toNumber(userStats.rows[0].active),
+          inactive: toNumber(userStats.rows[0].inactive),
+          newThisMonth: toNumber(userStats.rows[0].new_this_month)
+        },
+        caseStats: {
+          total: toNumber(caseStats.rows[0].total),
+          urgent: toNumber(caseStats.rows[0].urgent),
+          inProgress: toNumber(caseStats.rows[0].in_progress),
+          completed: toNumber(caseStats.rows[0].completed),
+          monthlyData: (caseStats.rows[0].monthly_data || []).map(item => ({
+            month: String(item.month),
+            count: toNumber(item.count)
+          })),
+          byType: (caseStats.rows[0].by_type || []).map(item => ({
+            name: String(item.name),
+            count: toNumber(item.count),
+            color: String(item.color)
+          }))
+        },
+        proStats: {
+          total: toNumber(proStats.rows[0].total),
+          active: toNumber(proStats.rows[0].active),
+          pending: toNumber(proStats.rows[0].pending),
+          averageCaseLoad: toNumber(proStats.rows[0].average_case_load)
         }
-      });
+      };
+
+      // Log pour vérifier le format des données
+      console.log('Données formatées:', JSON.stringify(formattedData, null, 2));
+
+      res.json(formattedData);
     } catch (error) {
       console.error('Erreur lors de la récupération des statistiques:', error);
       res.status(500).json({

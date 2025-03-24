@@ -1,7 +1,7 @@
-const express = require('express');
-const { pool, testConnection } = require('./config/dbConfig');
-const cors = require('cors');
 require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const db = require('./models');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,8 +18,38 @@ app.use((req, res, next) => {
     next();
 });
 
-// Test de la connexion à la base de données au démarrage
-testConnection();
+// Vérifier les variables d'environnement
+console.log('Variables d\'environnement chargées:', {
+    DATABASE_URL: process.env.DATABASE_URL,
+    DB_NAME: process.env.DB_NAME,
+    DB_USER: process.env.DB_USER
+});
+
+// Test de la connexion à la base de données et synchronisation des modèles
+const initializeDatabase = async () => {
+    try {
+        // Test de connexion
+        await db.sequelize.authenticate();
+        console.log('✅ Connexion établie avec:', {
+            database: db.sequelize.config.database,
+            host: db.sequelize.config.host,
+            username: db.sequelize.config.username
+        });
+        
+        // Synchroniser les modèles
+        await db.sequelize.sync({ 
+            force: true  // Pour la première initialisation
+        });
+        console.log('✅ Modèles synchronisés avec la base de données');
+    } catch (error) {
+        console.error('❌ Erreur de connexion:', error.message);
+        console.error('Configuration utilisée:', db.sequelize.config);
+        process.exit(1);
+    }
+};
+
+// Initialiser la base de données avant de démarrer le serveur
+initializeDatabase();
 
 // Routes publiques (auth)
 const authRoutes = require('./routes/authRoutes');
@@ -44,7 +74,7 @@ app.use('/api/messages', messagesRoutes);
 app.use('/api/dons', donsRoutes);
 app.use('/api/demandes-ajout-logement', demandesAjoutLogementRoutes);
 app.use('/api/uploads', uploadsRoutes);
-app.use('/api/alerts', alertsRoutes );
+app.use('/api/alerts', alertsRoutes);
 
 // Routes protégées
 const adminRoutes = require('./routes/adminRoutes');
@@ -52,10 +82,10 @@ const proRoutes = require('./routes/proRoutes');
 const userRoutes = require('./routes/authRoutes');
 const emergencyRoutes = require('./routes/emergencyRoutes');
 
-app.use('/api/admin', adminRoutes);  // Routes protégées pour les admins
-app.use('/api/pro', proRoutes);      // Routes protégées pour les pros
-app.use('/api/user', userRoutes);    // Routes protégées pour les utilisateurs
-app.use('/api/emergency', emergencyRoutes); // Routes pour les urgences
+app.use('/api/admin', adminRoutes);
+app.use('/api/pro', proRoutes);
+app.use('/api/user', userRoutes);
+app.use('/api/emergency', emergencyRoutes);
 
 // Route d'accueil
 app.get('/', (req, res) => {
@@ -80,16 +110,33 @@ app.use((req, res) => {
 });
 
 // Démarrage du serveur
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`Serveur démarré sur le port ${PORT}`);
 });
 
 // Gestion propre de l'arrêt du serveur
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
     console.log('SIGTERM reçu. Arrêt gracieux du serveur...');
-    pool.end(() => {
-        console.log('Pool de connexion fermé');
-        process.exit(0);
-    });
+    try {
+        await db.sequelize.close();
+        console.log('Connexion à la base de données fermée');
+        server.close(() => {
+            console.log('Serveur HTTP arrêté');
+            process.exit(0);
+        });
+    } catch (error) {
+        console.error('Erreur lors de la fermeture:', error);
+        process.exit(1);
+    }
+});
+
+// Gestion des erreurs non capturées
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Promesse non gérée:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Exception non capturée:', error);
+    process.exit(1);
 });
 
