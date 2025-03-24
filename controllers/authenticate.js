@@ -158,8 +158,72 @@ const googleSignIn = async (req, res) => {
     }
 };
 
+const biometricLogin = async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        // Vérifier si l'utilisateur existe
+        const userQuery = await pool.query(
+            'SELECT u.*, bd.biometric_id FROM users u LEFT JOIN biometric_data bd ON u.id = bd.user_id WHERE u.email = $1',
+            [email]
+        );
+
+        if (userQuery.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Utilisateur non trouvé'
+            });
+        }
+
+        const user = userQuery.rows[0];
+
+        // Vérifier si l'utilisateur a des données biométriques
+        if (!user.biometric_id) {
+            return res.status(401).json({
+                success: false,
+                message: 'Aucune donnée biométrique trouvée pour cet utilisateur'
+            });
+        }
+
+        // Générer le token JWT
+        const token = jwt.sign(
+            { 
+                id: user.id,
+                email: user.email,
+                role: user.role
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        // Retourner les informations de l'utilisateur
+        res.json({
+            success: true,
+            message: 'Connexion biométrique réussie',
+            data: {
+                token,
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    role: user.role,
+                    name: `${user.first_name} ${user.last_name}`,
+                    status: user.status
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Erreur lors de la connexion biométrique:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erreur lors de la connexion biométrique'
+        });
+    }
+};
+
 module.exports = {
     register,
     login,
-    googleSignIn
+    googleSignIn,
+    biometricLogin
 };
