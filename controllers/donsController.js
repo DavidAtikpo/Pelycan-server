@@ -18,29 +18,47 @@ const getDons = async (req, res) => {
     }
     
     const query = `
-      SELECT * FROM dons 
-      WHERE user_id = $1
-      ORDER BY date DESC
+      SELECT 
+        id,
+        type,
+        description,
+        quantite,
+        photos,
+        localisation,
+        status,
+        created_at,
+        updated_at,
+        etat
+      FROM dons 
+      WHERE donateur_id = $1
+      ORDER BY created_at DESC
     `;
     
     const result = await pool.query(query, [userId]);
+    console.log('Nombre de dons trouvés:', result.rows.length);
     
     // Transformer les résultats pour correspondre au format attendu par le client
     const dons = result.rows.map(don => ({
       id: don.id,
       type: don.type,
       description: don.description || null,
-      montant: don.montant || null,
-      imageUrl: don.image_url || null,
-      coordonnees: don.coordonnees || null,
-      statut: don.statut,
-      date: don.date
+      quantite: don.quantite || null,
+      photos: don.photos || [],
+      localisation: don.localisation || null,
+      status: don.status,
+      dateCreation: don.created_at,
+      dateMiseAJour: don.updated_at,
+      etat: don.etat
     }));
     
     res.status(200).json(dons);
   } catch (error) {
-    console.error('Erreur lors de la récupération des dons:', error);
-    res.status(500).json({ message: 'Erreur lors de la récupération des dons' });
+    console.error('Erreur détaillée lors de la récupération des dons:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors de la récupération des dons',
+      error: error.message,
+      stack: error.stack
+    });
   }
 };
 
@@ -56,28 +74,39 @@ const createDon = async (req, res) => {
       return res.status(401).json({ message: 'Utilisateur non authentifié' });
     }
     
-    const { type, description, montant, imageUrl, coordonnees } = req.body;
+    const { type, description, quantite, photos, localisation, etat } = req.body;
     
     // Validation des données
-    if (!type || (type !== 'objet' && type !== 'financier')) {
-      return res.status(400).json({ message: 'Type de don invalide' });
+    if (!type) {
+      return res.status(400).json({ message: 'Type de don requis' });
     }
     
-    if (type === 'objet' && (!description || !coordonnees)) {
-      return res.status(400).json({ message: 'Description et coordonnées requis pour les dons d\'objet' });
+    if (!description) {
+      return res.status(400).json({ message: 'Description requise' });
     }
     
-    if (type === 'financier' && (!montant || isNaN(montant) || montant <= 0)) {
-      return res.status(400).json({ message: 'Montant invalide pour le don financier' });
+    if (!localisation) {
+      return res.status(400).json({ message: 'Localisation requise' });
     }
     
     const id = uuidv4();
-    const date = new Date();
-    const statut = 'en_attente';
+    const now = new Date();
     
     const query = `
-      INSERT INTO dons(id, user_id, type, description, montant, image_url, coordonnees, statut, date)
-      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO dons(
+        id,
+        donateur_id,
+        type,
+        description,
+        quantite,
+        photos,
+        localisation,
+        status,
+        created_at,
+        updated_at,
+        etat
+      )
+      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *
     `;
     
@@ -85,29 +114,31 @@ const createDon = async (req, res) => {
       id,
       userId,
       type,
-      description || null,
-      montant || null,
-      imageUrl || null,
-      coordonnees || null,
-      statut,
-      date
+      description,
+      quantite || null,
+      photos || [],
+      localisation,
+      'en_attente',
+      now,
+      now,
+      etat || 'neuf'
     ];
     
     const result = await pool.query(query, values);
+    const don = result.rows[0];
     
-    // Transformer le résultat pour correspondre au format attendu par le client
-    const don = {
-      id: result.rows[0].id,
-      type: result.rows[0].type,
-      description: result.rows[0].description || null,
-      montant: result.rows[0].montant || null,
-      imageUrl: result.rows[0].image_url || null,
-      coordonnees: result.rows[0].coordonnees || null,
-      statut: result.rows[0].statut,
-      date: result.rows[0].date
-    };
-    
-    res.status(201).json(don);
+    res.status(201).json({
+      id: don.id,
+      type: don.type,
+      description: don.description,
+      quantite: don.quantite,
+      photos: don.photos,
+      localisation: don.localisation,
+      status: don.status,
+      dateCreation: don.created_at,
+      dateMiseAJour: don.updated_at,
+      etat: don.etat
+    });
   } catch (error) {
     console.error('Erreur lors de la création du don:', error);
     res.status(500).json({ message: 'Erreur lors de la création du don' });
@@ -167,10 +198,10 @@ const uploadImage = async (req, res) => {
 const updateDonStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { statut } = req.body;
+    const { status } = req.body;
     
     // Vérifier si le statut est valide
-    if (!statut || (statut !== 'en_attente' && statut !== 'recu')) {
+    if (!status || !['en_attente', 'recu', 'refuse'].includes(status)) {
       return res.status(400).json({ message: 'Statut invalide' });
     }
     
@@ -185,26 +216,27 @@ const updateDonStatus = async (req, res) => {
     // Mettre à jour le statut
     const query = `
       UPDATE dons
-      SET statut = $1
-      WHERE id = $2
+      SET status = $1,
+          updated_at = $2
+      WHERE id = $3
       RETURNING *
     `;
     
-    const result = await pool.query(query, [statut, id]);
+    const result = await pool.query(query, [status, new Date(), id]);
+    const don = result.rows[0];
     
-    // Transformer le résultat pour correspondre au format attendu par le client
-    const don = {
-      id: result.rows[0].id,
-      type: result.rows[0].type,
-      description: result.rows[0].description || null,
-      montant: result.rows[0].montant || null,
-      imageUrl: result.rows[0].image_url || null,
-      coordonnees: result.rows[0].coordonnees || null,
-      statut: result.rows[0].statut,
-      date: result.rows[0].date
-    };
-    
-    res.status(200).json(don);
+    res.status(200).json({
+      id: don.id,
+      type: don.type,
+      description: don.description,
+      quantite: don.quantite,
+      photos: don.photos,
+      localisation: don.localisation,
+      status: don.status,
+      dateCreation: don.created_at,
+      dateMiseAJour: don.updated_at,
+      etat: don.etat
+    });
   } catch (error) {
     console.error('Erreur lors de la mise à jour du statut du don:', error);
     res.status(500).json({ message: 'Erreur lors de la mise à jour du statut du don' });

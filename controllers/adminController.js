@@ -7,7 +7,8 @@ const adminController = {
       const query = `
         SELECT 
           u.id,
-          u.full_name,
+          u.last_name,
+          u.first_name,
           u.speciality,
           (
             SELECT COUNT(*) 
@@ -288,8 +289,8 @@ const adminController = {
       const userStatsQuery = `
         SELECT 
           COUNT(*) as total,
-          COUNT(CASE WHEN last_login > NOW() - ${timeInterval} THEN 1 END) as active,
-          COUNT(CASE WHEN last_login <= NOW() - ${timeInterval} OR last_login IS NULL THEN 1 END) as inactive,
+          COUNT(CASE WHEN updated_at > NOW() - ${timeInterval} THEN 1 END) as active,
+          COUNT(CASE WHEN updated_at <= NOW() - ${timeInterval} OR updated_at IS NULL THEN 1 END) as inactive,
           COUNT(CASE WHEN created_at > NOW() - ${timeInterval} THEN 1 END) as new_this_month
         FROM users
         WHERE role = 'user'`;
@@ -314,7 +315,7 @@ const adminController = {
         )
         SELECT 
           COUNT(*) as total,
-          COUNT(CASE WHEN priority = 'urgent' THEN 1 END) as urgent,
+          COUNT(CASE WHEN priority = 'high' THEN 1 END) as urgent,
           COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress,
           COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
           (SELECT json_agg(monthly_data) FROM monthly_data) as monthly_data,
@@ -323,8 +324,8 @@ const adminController = {
               'name', name,
               'count', count,
               'color', CASE 
-                WHEN name = 'urgent' THEN '#FF4444'
-                WHEN name = 'normal' THEN '#2196F3'
+                WHEN name = 'high' THEN '#FF4444'
+                WHEN name = 'medium' THEN '#2196F3'
                 ELSE '#4CAF50'
               END
             )
@@ -400,9 +401,10 @@ const adminController = {
       res.json(formattedData);
     } catch (error) {
       console.error('Erreur lors de la récupération des statistiques:', error);
-      res.status(500).json({
+      res.status(500).json({ 
         success: false,
-        message: 'Erreur lors de la récupération des statistiques'
+        message: 'Erreur lors de la récupération des statistiques',
+        error: error.message 
       });
     }
   },
@@ -413,7 +415,8 @@ const adminController = {
       const query = `
         SELECT 
           u.id,
-          u.full_name,
+          u.last_name,
+          u.first_name,
           u.email,
           u.phone_number,
           u.status,
@@ -464,7 +467,7 @@ const adminController = {
           status = 'active',
           updated_at = NOW()
         WHERE id = $1 
-        RETURNING id, full_name, email, status`;
+        RETURNING id, last_name, first_name, email, status`;
 
       const result = await pool.query(updateQuery, [id]);
 
@@ -548,17 +551,29 @@ const adminController = {
   async getAllUsers(req, res) {
     try {
       const query = `
-        SELECT id, full_name as "fullName", email, role, status
+        SELECT 
+          id,
+          last_name,
+          first_name,
+          email,
+          role,
+          status,
+          created_at as "createdAt",
+          CONCAT(first_name, ' ', last_name) as "fullName"
         FROM users
-        ORDER BY full_name ASC
+        ORDER BY created_at DESC
       `;
       
       const { rows } = await pool.query(query);
       
-      res.json(rows);
+      res.json({
+        success: true,
+        data: rows
+      });
     } catch (error) {
       console.error('Erreur lors de la récupération des utilisateurs:', error);
       res.status(500).json({ 
+        success: false,
         message: 'Erreur lors de la récupération des utilisateurs',
         error: error.message 
       });
@@ -603,7 +618,7 @@ const adminController = {
         SET status = $1, 
             updated_at = CURRENT_TIMESTAMP 
         WHERE id = $2 
-        RETURNING id, full_name as "fullName", email, role, status
+        RETURNING id, last_name, first_name, email, role, status
       `;
       
       const { rows } = await pool.query(query, [status, userId]);
@@ -624,27 +639,25 @@ const adminController = {
       const query = `
         SELECT 
           u.id,
-          u.full_name as "fullName",
+          u.last_name,
+          u.first_name,
           u.email,
-          u.speciality,
+          u.phone_number,
           u.status,
+          u.availability,
+          u.notes,
           u.created_at as "createdAt",
-          COALESCE(
-            (SELECT json_agg(vd.document_url) 
-             FROM verification_documents vd 
-             WHERE vd.user_id = u.id),
-            '[]'
-          ) as "verificationDocuments",
-          COALESCE(
-            (SELECT COUNT(*) 
-             FROM case_assignments ca 
-             JOIN cases c ON ca.case_id = c.id 
-             WHERE ca.professional_id = u.id 
-             AND c.status = 'in_progress'),
-            0
-          ) as "activeCases"
+          u.last_login as "lastLogin",
+          CONCAT(u.first_name, ' ', u.last_name) as "fullName",
+          COUNT(DISTINCT c.id) as "totalCases",
+          COUNT(DISTINCT CASE WHEN c.status = 'in_progress' THEN c.id END) as "activeCases",
+          COALESCE(AVG(r.rating), 0) as "rating"
         FROM users u
+        LEFT JOIN case_assignments ca ON u.id = ca.professional_id
+        LEFT JOIN cases c ON ca.case_id = c.id
+        LEFT JOIN ratings r ON u.id = r.professional_id
         WHERE u.role = 'pro'
+        GROUP BY u.id
         ORDER BY u.created_at DESC
       `;
       
@@ -659,7 +672,7 @@ const adminController = {
       res.status(500).json({ 
         success: false,
         message: 'Erreur lors de la récupération des professionnels',
-        error: error.message 
+        error: error.message
       });
     }
   },
@@ -698,7 +711,7 @@ const adminController = {
           status = $1, 
           updated_at = CURRENT_TIMESTAMP 
         WHERE id = $2 AND role = 'pro'
-        RETURNING id, full_name as "fullName", email, speciality, status
+        RETURNING id, last_name, first_name, email, speciality, status
       `;
       
       const { rows } = await pool.query(query, [status, proId]);
@@ -731,7 +744,7 @@ const adminController = {
           er.latitude,
           er.longitude,
           json_build_object(
-            'fullName', u.full_name,
+            'fullName', u.last_name || ' ' || u.first_name,
             'phoneNumber', u.phone_number
           ) as user
         FROM emergency_requests er
@@ -773,7 +786,7 @@ const adminController = {
           er.latitude,
           er.longitude,
           json_build_object(
-            'fullName', u.full_name,
+            'fullName', u.last_name || ' ' || u.first_name,
             'phoneNumber', u.phone_number
           ) as user
         FROM emergency_requests er
@@ -875,6 +888,237 @@ const adminController = {
       });
     } finally {
       client.release();
+    }
+  },
+
+  // Mettre à jour le rôle d'un utilisateur
+  async updateUserRole(req, res) {
+    const { userId } = req.params;
+    const { role } = req.body;
+
+    try {
+      // Vérifier que le rôle est valide
+      if (!['admin', 'pro', 'user'].includes(role)) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Rôle invalide. Les valeurs acceptées sont: admin, pro, user' 
+        });
+      }
+
+      // Vérifier que l'utilisateur existe
+      const checkUser = await pool.query(
+        'SELECT role FROM users WHERE id = $1',
+        [userId]
+      );
+
+      if (checkUser.rows.length === 0) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'Utilisateur non trouvé' 
+        });
+      }
+
+      // Empêcher la modification du rôle d'un admin
+      if (checkUser.rows[0].role === 'admin') {
+        return res.status(403).json({ 
+          success: false,
+          message: 'Impossible de modifier le rôle d\'un administrateur' 
+        });
+      }
+
+      // Mettre à jour le rôle
+      const query = `
+        UPDATE users 
+        SET 
+          role = $1,
+          updated_at = CURRENT_TIMESTAMP 
+        WHERE id = $2 
+        RETURNING id, last_name, first_name, email, role, status
+      `;
+      
+      const { rows } = await pool.query(query, [role, userId]);
+
+      res.json({
+        success: true,
+        data: rows[0]
+      });
+    } catch (error) {
+      console.error('Erreur lors de la mise à jour du rôle:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur lors de la mise à jour du rôle',
+        error: error.message 
+      });
+    }
+  },
+
+  // Ajouter une note à un professionnel
+  async addNote(req, res) {
+    try {
+      const { userId } = req.params;
+      const { note } = req.body;
+
+      // Vérifier si l'utilisateur existe et est un professionnel
+      const userCheck = await pool.query(
+        'SELECT role FROM users WHERE id = $1',
+        [userId]
+      );
+
+      if (userCheck.rows.length === 0) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'Utilisateur non trouvé' 
+        });
+      }
+
+      if (userCheck.rows[0].role !== 'pro') {
+        return res.status(400).json({ 
+          success: false,
+          message: 'L\'utilisateur n\'est pas un professionnel' 
+        });
+      }
+
+      // Mettre à jour la note
+      const query = `
+        UPDATE users 
+        SET 
+          notes = $1,
+          updated_at = CURRENT_TIMESTAMP 
+        WHERE id = $2 
+        RETURNING id, notes
+      `;
+      
+      const { rows } = await pool.query(query, [note, userId]);
+
+      res.json({
+        success: true,
+        data: rows[0]
+      });
+    } catch (error) {
+      console.error('Erreur lors de l\'ajout de la note:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur lors de l\'ajout de la note',
+        error: error.message
+      });
+    }
+  },
+
+  // Mettre à jour la disponibilité d'un professionnel
+  async updateAvailability(req, res) {
+    try {
+      const { userId } = req.params;
+      const { availability } = req.body;
+
+      // Vérifier si l'utilisateur existe et est un professionnel
+      const userCheck = await pool.query(
+        'SELECT role FROM users WHERE id = $1',
+        [userId]
+      );
+
+      if (userCheck.rows.length === 0) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'Utilisateur non trouvé' 
+        });
+      }
+
+      if (userCheck.rows[0].role !== 'pro') {
+        return res.status(400).json({ 
+          success: false,
+          message: 'L\'utilisateur n\'est pas un professionnel' 
+        });
+      }
+
+      // Mettre à jour la disponibilité
+      const query = `
+        UPDATE users 
+        SET 
+          availability = $1,
+          updated_at = CURRENT_TIMESTAMP 
+        WHERE id = $2 
+        RETURNING id, availability
+      `;
+      
+      const { rows } = await pool.query(query, [availability, userId]);
+
+      res.json({
+        success: true,
+        data: rows[0]
+      });
+    } catch (error) {
+      console.error('Erreur lors de la mise à jour de la disponibilité:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur lors de la mise à jour de la disponibilité',
+        error: error.message
+      });
+    }
+  },
+
+  // Obtenir les statistiques d'un professionnel
+  async getProfessionalStats(req, res) {
+    try {
+      const { userId } = req.params;
+
+      // Vérifier si l'utilisateur existe et est un professionnel
+      const userCheck = await pool.query(
+        'SELECT role FROM users WHERE id = $1',
+        [userId]
+      );
+
+      if (userCheck.rows.length === 0) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'Utilisateur non trouvé' 
+        });
+      }
+
+      if (userCheck.rows[0].role !== 'pro') {
+        return res.status(400).json({ 
+          success: false,
+          message: 'L\'utilisateur n\'est pas un professionnel' 
+        });
+      }
+
+      // Obtenir les statistiques
+      const query = `
+        SELECT 
+          u.id,
+          u.created_at as "createdAt",
+          u.last_login as "lastLogin",
+          u.availability,
+          COUNT(DISTINCT c.id) as "totalCases",
+          COUNT(DISTINCT CASE WHEN c.status = 'in_progress' THEN c.id END) as "activeCases",
+          COALESCE(AVG(r.rating), 0) as "rating"
+        FROM users u
+        LEFT JOIN case_assignments ca ON u.id = ca.professional_id
+        LEFT JOIN cases c ON ca.case_id = c.id
+        LEFT JOIN ratings r ON u.id = r.professional_id
+        WHERE u.id = $1
+        GROUP BY u.id
+      `;
+      
+      const { rows } = await pool.query(query, [userId]);
+
+      if (rows.length === 0) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'Statistiques non trouvées' 
+        });
+      }
+
+      res.json({
+        success: true,
+        data: rows[0]
+      });
+    } catch (error) {
+      console.error('Erreur lors de la récupération des statistiques:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur lors de la récupération des statistiques',
+        error: error.message
+      });
     }
   },
 };

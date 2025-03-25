@@ -6,8 +6,16 @@ const db = require('./models');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Configuration CORS
+const corsOptions = {
+    origin: ['http://localhost:3000', 'http://10.0.2.2:3000', 'http://192.168.1.70:3000'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+};
+
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Middleware de sécurité basique

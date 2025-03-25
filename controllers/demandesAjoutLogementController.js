@@ -13,31 +13,46 @@ const getAllDemandes = async (req, res) => {
       return res.status(403).json({ message: 'Accès non autorisé' });
     }
     
+    // Requête principale adaptée à la structure réelle
     const query = `
-      SELECT * FROM demandes_ajout_logement
-      ORDER BY date_creation DESC
+      SELECT 
+        id,
+        logement_details,
+        status,
+        created_at,
+        updated_at,
+        documents,
+        commentaire_admin,
+        user_id,
+        logement_id
+      FROM demandes_ajout_logement
+      ORDER BY created_at DESC
     `;
     
     const result = await pool.query(query);
+    console.log('Nombre de demandes trouvées:', result.rows.length);
     
     // Transformer les résultats pour correspondre au format attendu par le client
     const demandes = result.rows.map(demande => ({
       id: demande.id,
-      nom: demande.nom,
-      prenom: demande.prenom,
-      telephone: demande.telephone,
-      email: demande.email,
-      justificatif: demande.justificatif || null,
-      statut: demande.statut,
-      dateCreation: demande.date_creation,
-      raisonDemande: demande.raison_demande,
-      estProprio: demande.est_proprio
+      ...demande.logement_details, // Déstructurer les détails du logement
+      status: demande.status,
+      dateCreation: demande.created_at,
+      dateMiseAJour: demande.updated_at,
+      documents: demande.documents || [],
+      commentaireAdmin: demande.commentaire_admin,
+      userId: demande.user_id,
+      logementId: demande.logement_id
     }));
     
     res.status(200).json(demandes);
   } catch (error) {
-    console.error('Erreur lors de la récupération des demandes:', error);
-    res.status(500).json({ message: 'Erreur lors de la récupération des demandes' });
+    console.error('Erreur détaillée lors de la récupération des demandes:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors de la récupération des demandes',
+      error: error.message,
+      stack: error.stack
+    });
   }
 };
 
@@ -52,7 +67,17 @@ const getDemandeById = async (req, res) => {
     const isAdmin = req.user && req.user.role === 'admin';
     
     const query = `
-      SELECT * FROM demandes_ajout_logement
+      SELECT 
+        id,
+        logement_details,
+        status,
+        created_at,
+        updated_at,
+        documents,
+        commentaire_admin,
+        user_id,
+        logement_id
+      FROM demandes_ajout_logement
       WHERE id = $1
     `;
     
@@ -65,24 +90,20 @@ const getDemandeById = async (req, res) => {
     const demande = result.rows[0];
     
     // Si c'est un utilisateur standard, vérifier qu'il accède à sa propre demande
-    // Remarque: Il faudrait idéalement stocker l'ID de l'utilisateur qui a fait la demande
-    // pour une vérification plus robuste
-    if (!isAdmin) {
-      // Pour l'instant, nous permettons simplement l'accès à toute demande
-      // Mais cela devrait être restreint à l'utilisateur qui a créé la demande
+    if (!isAdmin && demande.user_id !== req.user.id) {
+      return res.status(403).json({ message: 'Accès non autorisé' });
     }
     
     res.status(200).json({
       id: demande.id,
-      nom: demande.nom,
-      prenom: demande.prenom,
-      telephone: demande.telephone,
-      email: demande.email,
-      justificatif: demande.justificatif || null,
-      statut: demande.statut,
-      dateCreation: demande.date_creation,
-      raisonDemande: demande.raison_demande,
-      estProprio: demande.est_proprio
+      ...demande.logement_details,
+      status: demande.status,
+      dateCreation: demande.created_at,
+      dateMiseAJour: demande.updated_at,
+      documents: demande.documents || [],
+      commentaireAdmin: demande.commentaire_admin,
+      userId: demande.user_id,
+      logementId: demande.logement_id
     });
   } catch (error) {
     console.error('Erreur lors de la récupération de la demande:', error);
@@ -96,69 +117,55 @@ const getDemandeById = async (req, res) => {
 const createDemande = async (req, res) => {
   try {
     const { 
-      nom, 
-      prenom, 
-      telephone, 
-      email, 
-      justificatif, 
-      raisonDemande, 
-      estProprio 
+      logementDetails,
+      documents = []
     } = req.body;
     
     // Validation des données
-    if (!nom || !prenom || !telephone || !email || !raisonDemande) {
-      return res.status(400).json({ message: 'Veuillez fournir toutes les informations requises' });
+    if (!logementDetails) {
+      return res.status(400).json({ message: 'Veuillez fournir les détails du logement' });
     }
     
     const id = uuidv4();
-    const dateCreation = new Date();
-    const statut = 'en_attente';
+    const now = new Date();
     
     const query = `
       INSERT INTO demandes_ajout_logement(
-        id, 
-        nom, 
-        prenom, 
-        telephone, 
-        email, 
-        justificatif, 
-        statut, 
-        date_creation, 
-        raison_demande, 
-        est_proprio,
+        id,
+        logement_details,
+        status,
+        created_at,
+        updated_at,
+        documents,
         user_id
       )
-      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `;
     
     const values = [
       id,
-      nom,
-      prenom,
-      telephone,
-      email,
-      justificatif || null,
-      statut,
-      dateCreation,
-      raisonDemande,
-      estProprio,
-      req.user ? req.user.id : null // Associer à l'utilisateur s'il est connecté
+      logementDetails,
+      'en_attente',
+      now,
+      now,
+      documents,
+      req.user ? req.user.id : null
     ];
     
     const result = await pool.query(query, values);
+    const demande = result.rows[0];
     
     res.status(201).json({
-      id: result.rows[0].id,
-      nom: result.rows[0].nom,
-      prenom: result.rows[0].prenom,
-      telephone: result.rows[0].telephone,
-      email: result.rows[0].email,
-      justificatif: result.rows[0].justificatif || null,
-      statut: result.rows[0].statut,
-      dateCreation: result.rows[0].date_creation,
-      raisonDemande: result.rows[0].raison_demande,
-      estProprio: result.rows[0].est_proprio
+      id: demande.id,
+      ...demande.logement_details,
+      status: demande.status,
+      dateCreation: demande.created_at,
+      dateMiseAJour: demande.updated_at,
+      documents: demande.documents || [],
+      commentaireAdmin: demande.commentaire_admin,
+      userId: demande.user_id,
+      logementId: demande.logement_id
     });
   } catch (error) {
     console.error('Erreur lors de la création de la demande:', error);
@@ -173,7 +180,7 @@ const createDemande = async (req, res) => {
 const updateDemandeStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { statut } = req.body;
+    const { status, commentaireAdmin } = req.body;
     
     // Vérifier si l'utilisateur est un administrateur
     const isAdmin = req.user && req.user.role === 'admin';
@@ -182,7 +189,7 @@ const updateDemandeStatus = async (req, res) => {
     }
     
     // Vérifier si le statut est valide
-    if (!statut || !['en_attente', 'approuvee', 'refusee'].includes(statut)) {
+    if (!status || !['en_attente', 'approuvee', 'refusee'].includes(status)) {
       return res.status(400).json({ message: 'Statut invalide' });
     }
     
@@ -197,24 +204,26 @@ const updateDemandeStatus = async (req, res) => {
     // Mettre à jour le statut
     const query = `
       UPDATE demandes_ajout_logement
-      SET statut = $1, date_mise_a_jour = $2
-      WHERE id = $3
+      SET status = $1, 
+          commentaire_admin = $2,
+          updated_at = $3
+      WHERE id = $4
       RETURNING *
     `;
     
-    const result = await pool.query(query, [statut, new Date(), id]);
+    const result = await pool.query(query, [status, commentaireAdmin, new Date(), id]);
+    const demande = result.rows[0];
     
     res.status(200).json({
-      id: result.rows[0].id,
-      nom: result.rows[0].nom,
-      prenom: result.rows[0].prenom,
-      telephone: result.rows[0].telephone,
-      email: result.rows[0].email,
-      justificatif: result.rows[0].justificatif || null,
-      statut: result.rows[0].statut,
-      dateCreation: result.rows[0].date_creation,
-      raisonDemande: result.rows[0].raison_demande,
-      estProprio: result.rows[0].est_proprio
+      id: demande.id,
+      ...demande.logement_details,
+      status: demande.status,
+      dateCreation: demande.created_at,
+      dateMiseAJour: demande.updated_at,
+      documents: demande.documents || [],
+      commentaireAdmin: demande.commentaire_admin,
+      userId: demande.user_id,
+      logementId: demande.logement_id
     });
   } catch (error) {
     console.error('Erreur lors de la mise à jour du statut de la demande:', error);

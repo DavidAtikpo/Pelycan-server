@@ -14,26 +14,42 @@ class LogementsController {
             const query = `
                 SELECT 
                     id, 
-                    titre, 
-                    description, 
+                    proprietaire_id,
                     adresse, 
-                    ville, 
-                    code_postal, 
-                    nombre_pieces, 
-                    superficie, 
-                    loyer, 
-                    charges, 
-                    disponibilite, 
-                    type_logement,
-                    image_url
+                    type,
+                    capacite,
+                    description,
+                    equipements,
+                    disponibilite,
+                    status,
+                    photos,
+                    created_at,
+                    updated_at
                 FROM logements 
-                WHERE disponible = true 
-                ORDER BY date_creation DESC
+                WHERE disponibilite = true 
+                ORDER BY created_at DESC
             `;
             
             const result = await pool.query(query);
             
-            return res.status(200).json(result.rows);
+            // Transformer les résultats pour correspondre au format attendu par le client
+            const logements = result.rows.map(logement => ({
+                id: logement.id,
+                titre: logement.type, // Utiliser le type comme titre
+                description: logement.description || '',
+                adresse: logement.adresse,
+                type: logement.type,
+                capacite: logement.capacite,
+                equipements: logement.equipements || {},
+                disponibilite: logement.disponibilite,
+                status: logement.status,
+                photos: logement.photos || [],
+                dateCreation: logement.created_at,
+                dateModification: logement.updated_at,
+                proprietaireId: logement.proprietaire_id
+            }));
+            
+            return res.status(200).json(logements);
         } catch (error) {
             console.error('Erreur lors de la récupération des logements:', error);
             return res.status(500).json({ message: 'Erreur serveur lors de la récupération des logements' });
@@ -52,18 +68,17 @@ class LogementsController {
             const query = `
                 SELECT 
                     id, 
-                    titre, 
-                    description, 
+                    proprietaire_id,
                     adresse, 
-                    ville, 
-                    code_postal, 
-                    nombre_pieces, 
-                    superficie, 
-                    loyer, 
-                    charges, 
-                    disponibilite, 
-                    type_logement,
-                    image_url
+                    type,
+                    capacite,
+                    description,
+                    equipements,
+                    disponibilite,
+                    status,
+                    photos,
+                    created_at,
+                    updated_at
                 FROM logements 
                 WHERE id = $1
             `;
@@ -74,7 +89,26 @@ class LogementsController {
                 return res.status(404).json({ message: 'Logement non trouvé' });
             }
             
-            return res.status(200).json(result.rows[0]);
+            const logement = result.rows[0];
+            
+            // Transformer le résultat pour correspondre au format attendu par le client
+            const logementFormatted = {
+                id: logement.id,
+                titre: logement.type, // Utiliser le type comme titre
+                description: logement.description || '',
+                adresse: logement.adresse,
+                type: logement.type,
+                capacite: logement.capacite,
+                equipements: logement.equipements || {},
+                disponibilite: logement.disponibilite,
+                status: logement.status,
+                photos: logement.photos || [],
+                dateCreation: logement.created_at,
+                dateModification: logement.updated_at,
+                proprietaireId: logement.proprietaire_id
+            };
+            
+            return res.status(200).json(logementFormatted);
         } catch (error) {
             console.error('Erreur lors de la récupération du logement:', error);
             return res.status(500).json({ message: 'Erreur serveur lors de la récupération du logement' });
@@ -89,20 +123,13 @@ class LogementsController {
     static async addLogement(req, res) {
         try {
             const { 
-                titre, 
-                description, 
-                adresse, 
-                ville, 
-                code_postal, 
-                nombre_pieces, 
-                superficie, 
-                loyer, 
-                charges, 
-                disponibilite, 
-                type_logement,
-                image_url,
+                type,
+                adresse,
+                capacite,
+                description,
                 equipements,
-                images  // Nouveau champ pour stocker plusieurs URLs d'images
+                disponibilite,
+                photos
             } = req.body;
             
             console.log('Données reçues pour l\'ajout d\'un logement:', req.body);
@@ -116,47 +143,32 @@ class LogementsController {
             // Insertion du logement
             const query = `
                 INSERT INTO logements (
-                    titre, 
-                    description, 
-                    adresse, 
-                    ville, 
-                    code_postal, 
-                    nombre_pieces, 
-                    superficie, 
-                    loyer, 
-                    charges, 
-                    disponibilite, 
-                    type_logement,
-                    image_url,
+                    proprietaire_id,
+                    adresse,
+                    type,
+                    capacite,
+                    description,
                     equipements,
-                    images,
-                    disponible,
-                    date_creation,
-                    user_id
+                    disponibilite,
+                    status,
+                    photos,
+                    created_at,
+                    updated_at
                 ) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true, NOW(), $15)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
                 RETURNING id
             `;
             
-            // Si images est fourni et est un tableau, le convertir en JSON stringifié
-            const imagesValue = images && Array.isArray(images) ? JSON.stringify(images) : null;
-            
             const values = [
-                titre, 
-                description, 
-                adresse, 
-                ville, 
-                code_postal, 
-                nombre_pieces, 
-                superficie, 
-                loyer, 
-                charges, 
-                disponibilite, 
-                type_logement,
-                image_url,
-                equipements,
-                imagesValue,
-                userId  // Utiliser l'ID de l'utilisateur authentifié
+                userId,
+                adresse,
+                type,
+                capacite,
+                description,
+                equipements || {},
+                disponibilite || true,
+                'disponible',
+                photos || []
             ];
             
             const result = await pool.query(query, values);
@@ -180,56 +192,41 @@ class LogementsController {
         try {
             const { id } = req.params;
             const { 
-                titre, 
-                description, 
-                adresse, 
-                ville, 
-                code_postal, 
-                nombre_pieces, 
-                superficie, 
-                loyer, 
-                charges, 
-                disponibilite, 
-                type_logement,
-                image_url,
-                disponible
+                type,
+                adresse,
+                capacite,
+                description,
+                equipements,
+                disponibilite,
+                status,
+                photos
             } = req.body;
             
             const query = `
                 UPDATE logements 
                 SET 
-                    titre = $1, 
-                    description = $2, 
-                    adresse = $3, 
-                    ville = $4, 
-                    code_postal = $5, 
-                    nombre_pieces = $6, 
-                    superficie = $7, 
-                    loyer = $8, 
-                    charges = $9, 
-                    disponibilite = $10, 
-                    type_logement = $11,
-                    image_url = $12,
-                    disponible = $13,
-                    date_modification = NOW()
-                WHERE id = $14
+                    type = $1,
+                    adresse = $2,
+                    capacite = $3,
+                    description = $4,
+                    equipements = $5,
+                    disponibilite = $6,
+                    status = $7,
+                    photos = $8,
+                    updated_at = NOW()
+                WHERE id = $9
                 RETURNING id
             `;
             
             const values = [
-                titre, 
-                description, 
-                adresse, 
-                ville, 
-                code_postal, 
-                nombre_pieces, 
-                superficie, 
-                loyer, 
-                charges, 
-                disponibilite, 
-                type_logement,
-                image_url,
-                disponible,
+                type,
+                adresse,
+                capacite,
+                description,
+                equipements || {},
+                disponibilite,
+                status,
+                photos || [],
                 id
             ];
             
@@ -262,8 +259,9 @@ class LogementsController {
             const query = `
                 UPDATE logements 
                 SET 
-                    disponible = false,
-                    date_modification = NOW()
+                    disponibilite = false,
+                    status = 'indisponible',
+                    updated_at = NOW()
                 WHERE id = $1
                 RETURNING id
             `;

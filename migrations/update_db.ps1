@@ -31,6 +31,7 @@ try {
     $createEnumsFile = Join-Path $migrationsPath "20240322_create_enums.sql"
     $createTablesFile = Join-Path $migrationsPath "20240322_create_tables.sql"
     $fixBiometricDataFile = Join-Path $migrationsPath "20240322_fix_biometric_data.sql"
+    $fixUsersTableFile = Join-Path $migrationsPath "20240322_fix_users_table.sql"
 
     if (-not (Test-Path $createEnumsFile)) {
         Write-Host "Le fichier de migration des types énumérés n'existe pas : $createEnumsFile"
@@ -47,13 +48,18 @@ try {
         exit 1
     }
 
+    if (-not (Test-Path $fixUsersTableFile)) {
+        Write-Host "Le fichier de correction de la table users n'existe pas : $fixUsersTableFile"
+        exit 1
+    }
+
     # Exécuter les migrations
     Write-Host "Exécution des migrations..."
     
     # Exécuter la migration des types énumérés
     Write-Host "Exécution de la migration des types énumérés..."
     $env:PGPASSWORD = $env:DB_PASSWORD
-    psql -h "dpg-cvgggiqqgecs739eos30-a.oregon-postgres.render.com" -U $env:DB_USER -d $env:DB_NAME -f $createEnumsFile
+    psql -h $env:DB_HOST -U $env:DB_USER -d $env:DB_NAME -f $createEnumsFile
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Erreur lors de l'exécution de la migration des types énumérés"
         exit 1
@@ -61,7 +67,7 @@ try {
 
     # Exécuter la migration des tables
     Write-Host "Exécution de la migration des tables..."
-    psql -h "dpg-cvgggiqqgecs739eos30-a.oregon-postgres.render.com" -U $env:DB_USER -d $env:DB_NAME -f $createTablesFile
+    psql -h $env:DB_HOST -U $env:DB_USER -d $env:DB_NAME -f $createTablesFile
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Erreur lors de l'exécution de la migration des tables"
         exit 1
@@ -69,9 +75,17 @@ try {
 
     # Exécuter la correction des données biométriques
     Write-Host "Exécution de la correction des données biométriques..."
-    psql -h "dpg-cvgggiqqgecs739eos30-a.oregon-postgres.render.com" -U $env:DB_USER -d $env:DB_NAME -f $fixBiometricDataFile
+    psql -h $env:DB_HOST -U $env:DB_USER -d $env:DB_NAME -f $fixBiometricDataFile
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Erreur lors de l'exécution de la correction des données biométriques"
+        exit 1
+    }
+
+    # Exécuter la correction de la table users
+    Write-Host "Exécution de la correction de la table users..."
+    psql -h $env:DB_HOST -U $env:DB_USER -d $env:DB_NAME -f $fixUsersTableFile
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Erreur lors de l'exécution de la correction de la table users"
         exit 1
     }
 
@@ -80,5 +94,6 @@ try {
 } catch {
     Write-Host "Une erreur est survenue lors de l'exécution des migrations :"
     Write-Host $_.Exception.Message
+    Write-Host $_.ScriptStackTrace
     exit 1
 } 
