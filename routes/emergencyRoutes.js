@@ -12,7 +12,10 @@ router.post('/request', emergencyController.createEmergencyRequest);
 // Obtenir le statut d'une demande d'urgence
 router.get('/status/:emergencyId', emergencyController.getEmergencyStatus);
 
-// Mettre à jour le statut d'une demande d'urgence (réservé aux professionnels)
-router.patch('/status/:emergencyId', emergencyController.updateEmergencyStatus);
+// Mettre à jour le statut d'une demande d'urgence
+router.put('/status/:emergencyId', emergencyController.updateEmergencyStatus);
+
+// Récupérer l'historique des demandes d'urgence d'un utilisateur
+router.get('/history/:userId', emergencyController.getEmergencyHistory);
 
 module.exports = router; 

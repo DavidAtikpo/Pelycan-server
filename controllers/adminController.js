@@ -9,7 +9,7 @@ const adminController = {
           u.id,
           u.last_name,
           u.first_name,
-          u.speciality,
+          u.phone_number,
           (
             SELECT COUNT(*) 
             FROM case_assignments 

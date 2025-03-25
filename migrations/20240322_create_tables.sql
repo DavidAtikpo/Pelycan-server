@@ -43,12 +43,14 @@ CREATE TABLE IF NOT EXISTS alerts (
 -- Créer la table emergency_requests si elle n'existe pas
 CREATE TABLE IF NOT EXISTS emergency_requests (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    status emergency_status_enum DEFAULT 'pending'::emergency_status_enum,
-    location VARCHAR(255),
     user_id UUID REFERENCES users(id),
-    assigned_to UUID REFERENCES users(id),
+    professional_id UUID REFERENCES users(id),
+    request_type VARCHAR(50) NOT NULL,
+    status emergency_status_enum DEFAULT 'pending'::emergency_status_enum,
+    latitude FLOAT NOT NULL,
+    longitude FLOAT NOT NULL,
+    assignment_note TEXT,
+    assigned_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -127,23 +129,29 @@ BEGIN
     END IF;
 
     -- Emergency Requests
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'title') THEN
-        ALTER TABLE emergency_requests ADD COLUMN title VARCHAR(255) NOT NULL;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'user_id') THEN
+        ALTER TABLE emergency_requests ADD COLUMN user_id UUID REFERENCES users(id);
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'description') THEN
-        ALTER TABLE emergency_requests ADD COLUMN description TEXT;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'professional_id') THEN
+        ALTER TABLE emergency_requests ADD COLUMN professional_id UUID REFERENCES users(id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'request_type') THEN
+        ALTER TABLE emergency_requests ADD COLUMN request_type VARCHAR(50) NOT NULL;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'status') THEN
         ALTER TABLE emergency_requests ADD COLUMN status emergency_status_enum DEFAULT 'pending'::emergency_status_enum;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'location') THEN
-        ALTER TABLE emergency_requests ADD COLUMN location VARCHAR(255);
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'latitude') THEN
+        ALTER TABLE emergency_requests ADD COLUMN latitude FLOAT NOT NULL;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'user_id') THEN
-        ALTER TABLE emergency_requests ADD COLUMN user_id UUID REFERENCES users(id);
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'longitude') THEN
+        ALTER TABLE emergency_requests ADD COLUMN longitude FLOAT NOT NULL;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'assigned_to') THEN
-        ALTER TABLE emergency_requests ADD COLUMN assigned_to UUID REFERENCES users(id);
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'assignment_note') THEN
+        ALTER TABLE emergency_requests ADD COLUMN assignment_note TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'emergency_requests' AND column_name = 'assigned_at') THEN
+        ALTER TABLE emergency_requests ADD COLUMN assigned_at TIMESTAMP WITH TIME ZONE;
     END IF;
 
     -- Biometric Data

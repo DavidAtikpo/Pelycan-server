@@ -1,10 +1,13 @@
 const { Pool } = require('pg');
 const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'pelycan',
-    password: '12345678',
+    user: 'dbpelycan_user',
+    host: 'dpg-cvgggiqqgecs739eos30-a.oregon-postgres.render.com',
+    database: 'dbpelycan',
+    password: 'r7ZmNPPJoulWXb3CgJ9BgcDpagwjfJKp',
     port: 5432,
+    ssl: {
+        rejectUnauthorized: false
+    }
 });
 
 
@@ -30,10 +33,9 @@ const createAlert = async (req, res) => {
                 longitude,
                 accuracy,
                 status,
-                messages,
-                timestamp
+                messages
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
         `;
 
@@ -44,8 +46,7 @@ const createAlert = async (req, res) => {
             location.longitude,
             location.accuracy || null,
             'active',
-            '[]',
-            new Date()
+            '[]'
         ];
 
         const result = await pool.query(query, values);
@@ -62,7 +63,10 @@ const createAlert = async (req, res) => {
                 accuracy: alert.accuracy
             },
             timestamp: alert.timestamp,
-            status: alert.status
+            status: alert.status,
+            created_at: alert.created_at,
+            updated_at: alert.updated_at,
+            viewed_by_admin: alert.viewed_by_admin
         };
 
         res.status(201).json({

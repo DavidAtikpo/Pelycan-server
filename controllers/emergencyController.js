@@ -1,4 +1,5 @@
 const { pool } = require('../config/dbConfig');
+const { v4: uuidv4 } = require('uuid');
 
 const emergencyController = {
     // Créer une nouvelle demande d'urgence
@@ -12,14 +13,18 @@ const emergencyController = {
             // Insérer la demande d'urgence
             const emergencyQuery = `
                 INSERT INTO emergency_requests (
+                    id,
                     user_id,
                     latitude,
                     longitude,
-                    accuracy,
                     request_type,
                     created_at,
+                    updated_at,
                     status
-                ) VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+                ) VALUES (
+                    uuid_generate_v4(),
+                    $1, $2, $3, $4, $5, $5, 'pending'
+                )
                 RETURNING id
             `;
 
@@ -27,7 +32,6 @@ const emergencyController = {
                 userId,
                 location.latitude,
                 location.longitude,
-                location.accuracy || null,
                 type,
                 timestamp
             ];
@@ -37,20 +41,26 @@ const emergencyController = {
             // Notifier les professionnels disponibles
             const notifyQuery = `
                 INSERT INTO emergency_notifications (
-                    emergency_request_id,
-                    professional_id,
+                    id,
+                    emergency_id,
+                    user_id,
+                    type,
+                    content,
                     created_at,
-                    status
+                    updated_at
                 )
                 SELECT 
+                    uuid_generate_v4(),
                     $1,
                     u.id,
+                    'emergency_request',
+                    'Nouvelle demande d''urgence',
                     NOW(),
-                    'pending'
+                    NOW()
                 FROM users u
                 WHERE u.role = 'pro'
                 AND u.status = 'active'
-                AND u.last_active > NOW() - INTERVAL '15 minutes'
+                AND (u.last_login IS NULL OR u.last_login > NOW() - INTERVAL '15 minutes')
             `;
 
             await client.query(notifyQuery, [emergency.id]);
@@ -58,16 +68,21 @@ const emergencyController = {
             // Créer une entrée dans le journal des urgences
             const logQuery = `
                 INSERT INTO emergency_logs (
-                    emergency_request_id,
-                    action_type,
+                    id,
+                    emergency_id,
+                    action,
                     details,
-                    created_at
-                ) VALUES ($1, 'created', $2, NOW())
+                    performed_by,
+                    updated_at
+                ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
             `;
 
             await client.query(logQuery, [
+                uuidv4(),
                 emergency.id,
-                `Demande d'urgence de type ${type} créée`
+                'created',
+                JSON.stringify({ status: 'pending' }),
+                userId
             ]);
 
             await client.query('COMMIT');
@@ -102,13 +117,13 @@ const emergencyController = {
                     json_agg(
                         json_build_object(
                             'id', el.id,
-                            'action_type', el.action_type,
+                            'action', el.action,
                             'details', el.details,
                             'created_at', el.created_at
                         ) ORDER BY el.created_at DESC
                     ) as logs
                 FROM emergency_requests er
-                LEFT JOIN emergency_logs el ON er.id = el.emergency_request_id
+                LEFT JOIN emergency_logs el ON er.id = el.emergency_id
                 WHERE er.id = $1
                 GROUP BY er.id
             `;
@@ -163,17 +178,21 @@ const emergencyController = {
             // Ajouter une entrée dans les logs
             const logQuery = `
                 INSERT INTO emergency_logs (
-                    emergency_request_id,
-                    action_type,
+                    id,
+                    emergency_id,
+                    action,
                     details,
-                    created_at
-                ) VALUES ($1, $2, $3, NOW())
+                    performed_by,
+                    updated_at
+                ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
             `;
 
             await client.query(logQuery, [
+                uuidv4(),
                 emergencyId,
                 'status_updated',
-                details || `Statut mis à jour: ${status}`
+                JSON.stringify({ status, details: details || `Statut mis à jour: ${status}` }),
+                req.user.id
             ]);
 
             await client.query('COMMIT');
@@ -192,6 +211,48 @@ const emergencyController = {
             });
         } finally {
             client.release();
+        }
+    },
+
+    // Récupérer l'historique des demandes d'urgence d'un utilisateur
+    async getEmergencyHistory(req, res) {
+        const { userId } = req.params;
+
+        try {
+            const query = `
+                SELECT 
+                    er.id,
+                    er.request_type,
+                    er.status,
+                    er.created_at,
+                    er.updated_at,
+                    json_agg(
+                        json_build_object(
+                            'id', el.id,
+                            'action', el.action,
+                            'details', el.details,
+                            'created_at', el.created_at
+                        ) ORDER BY el.created_at DESC
+                    ) as logs
+                FROM emergency_requests er
+                LEFT JOIN emergency_logs el ON er.id = el.emergency_id
+                WHERE er.user_id = $1
+                GROUP BY er.id, er.request_type, er.status, er.created_at, er.updated_at
+                ORDER BY er.created_at DESC
+            `;
+
+            const { rows } = await pool.query(query, [userId]);
+
+            res.json({
+                success: true,
+                data: rows
+            });
+        } catch (error) {
+            console.error('Erreur lors de la récupération de l\'historique:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Erreur lors de la récupération de l\'historique'
+            });
         }
     }
 };
