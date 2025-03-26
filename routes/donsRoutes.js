@@ -19,8 +19,8 @@ const upload = multer({
 });
 
 // Routes pour les dons
-router.get('/', authMiddleware, donsController.getDons);
 router.post('/', authMiddleware, donsController.createDon);
+router.get('/', authMiddleware, donsController.getDons);
 router.put('/:id/status', authMiddleware, donsController.updateDonStatus);
 
 // Route pour l'upload d'image

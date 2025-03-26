@@ -54,10 +54,7 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'proprietaire_id',
       as: 'proprietaire'
     });
-    Logement.hasMany(models.HebergementTemporaire, {
-      foreignKey: 'logement_id',
-      as: 'hebergements'
-    });
+   
     Logement.hasMany(models.DemandeAjoutLogement, {
       foreignKey: 'logement_id',
       as: 'demandes'

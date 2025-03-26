@@ -226,6 +226,8 @@ class MessagesController {
         const userId = req.user.id;
         
         try {
+            console.log('Getting conversations for user:', userId);
+            
             const query = `
                 WITH LastMessages AS (
                     SELECT 
@@ -244,12 +246,12 @@ class MessagesController {
                         ELSE c.user1_id
                     END as participant_id,
                     CASE 
-                        WHEN c.user1_id = $1 THEN u2.name
-                        ELSE u1.name
+                        WHEN c.user1_id = $1 THEN CONCAT(u2.first_name, ' ', u2.last_name)
+                        ELSE CONCAT(u1.first_name, ' ', u1.last_name)
                     END as participant_name,
                     CASE 
-                        WHEN c.user1_id = $1 THEN u2.type
-                        ELSE u1.type
+                        WHEN c.user1_id = $1 THEN u2.role
+                        ELSE u1.role
                     END as participant_type,
                     lm.last_message,
                     lm.last_message_time,
@@ -260,24 +262,24 @@ class MessagesController {
                 LEFT JOIN messages m ON m.conversation_id = c.id
                 LEFT JOIN LastMessages lm ON lm.conversation_id = c.id AND lm.rn = 1
                 WHERE c.user1_id = $1 OR c.user2_id = $1
-                GROUP BY c.id, u1.name, u2.name, u1.type, u2.type, lm.last_message, lm.last_message_time
+                GROUP BY c.id, u1.first_name, u1.last_name, u2.first_name, u2.last_name, u1.role, u2.role, lm.last_message, lm.last_message_time
                 ORDER BY lm.last_message_time DESC NULLS LAST
             `;
 
             const result = await pool.query(query, [userId]);
-            // Retourner un tableau vide si aucune conversation n'est trouvée
-            res.json({ 
+            console.log('Found conversations:', result.rows.length);
+            
+            return res.status(200).json({ 
                 success: true, 
                 conversations: result.rows || [],
                 message: result.rows.length === 0 ? 'Aucune conversation trouvée' : undefined
             });
         } catch (error) {
             console.error('Error getting conversations:', error);
-            // En cas d'erreur, retourner un tableau vide au lieu d'une erreur
-            res.json({ 
-                success: true, 
-                conversations: [],
-                message: 'Aucune conversation disponible'
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Erreur lors de la récupération des conversations',
+                error: error.message
             });
         }
     }
@@ -288,6 +290,9 @@ class MessagesController {
         const userId = req.user.id;
 
         try {
+            console.log('Getting messages for conversation:', { conversationId, userId });
+
+            // Vérifier l'accès à la conversation
             const accessQuery = `
                 SELECT id FROM conversations 
                 WHERE id = $1 AND (user1_id = $2 OR user2_id = $2)
@@ -295,9 +300,14 @@ class MessagesController {
             const accessResult = await pool.query(accessQuery, [conversationId, userId]);
 
             if (accessResult.rows.length === 0) {
-                return res.status(403).json({ success: false, message: 'Accès non autorisé à cette conversation' });
+                console.log('Access denied to conversation:', conversationId);
+                return res.status(403).json({ 
+                    success: false, 
+                    message: 'Accès non autorisé à cette conversation' 
+                });
             }
 
+            // Récupérer les messages
             const query = `
                 SELECT 
                     m.id,
@@ -306,8 +316,8 @@ class MessagesController {
                     m.content,
                     m.created_at,
                     m.read,
-                    u.name as sender_name,
-                    u.type as sender_type
+                    CONCAT(u.first_name, ' ', u.last_name) as sender_name,
+                    u.role as sender_type
                 FROM messages m
                 JOIN users u ON m.sender_id = u.id
                 WHERE m.conversation_id = $1
@@ -315,60 +325,84 @@ class MessagesController {
             `;
 
             const result = await pool.query(query, [conversationId]);
-            res.json({ success: true, messages: result.rows });
+            console.log('Messages retrieved:', result.rows.length);
+
+            return res.status(200).json({ 
+                success: true, 
+                messages: result.rows 
+            });
         } catch (error) {
             console.error('Error getting messages:', error);
-            res.status(500).json({ success: false, message: 'Erreur lors de la récupération des messages' });
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Erreur lors de la récupération des messages',
+                error: error.message
+            });
         }
     }
 
     // Envoyer un message
     static async sendMessage(req, res) {
-        const { receiver_id, content } = req.body;
+        const { conversation_id, content } = req.body;
         const sender_id = req.user.id;
 
         try {
-            let conversationId;
-            const existingConversationQuery = `
-                SELECT id FROM conversations 
-                WHERE (user1_id = $1 AND user2_id = $2) 
-                OR (user1_id = $2 AND user2_id = $1)
-            `;
-            const existingConversation = await pool.query(existingConversationQuery, [sender_id, receiver_id]);
+            console.log('Sending message:', { conversation_id, sender_id, content });
 
-            if (existingConversation.rows.length > 0) {
-                conversationId = existingConversation.rows[0].id;
-            } else {
-                const newConversationQuery = `
-                    INSERT INTO conversations (user1_id, user2_id)
-                    VALUES ($1, $2)
-                    RETURNING id
-                `;
-                const newConversation = await pool.query(newConversationQuery, [sender_id, receiver_id]);
-                conversationId = newConversation.rows[0].id;
+            // Vérifier l'accès à la conversation
+            const accessQuery = `
+                SELECT id, user1_id, user2_id 
+                FROM conversations 
+                WHERE id = $1 AND (user1_id = $2 OR user2_id = $2)
+            `;
+            const accessResult = await pool.query(accessQuery, [conversation_id, sender_id]);
+
+            if (accessResult.rows.length === 0) {
+                console.log('Access denied to conversation:', conversation_id);
+                return res.status(403).json({ 
+                    success: false, 
+                    message: 'Accès non autorisé à cette conversation' 
+                });
             }
 
+            // Déterminer le receiver_id
+            const conversation = accessResult.rows[0];
+            const receiver_id = conversation.user1_id === sender_id ? conversation.user2_id : conversation.user1_id;
+
+            // Insérer le message
             const messageQuery = `
                 INSERT INTO messages (conversation_id, sender_id, receiver_id, content)
                 VALUES ($1, $2, $3, $4)
-                RETURNING id, created_at
+                RETURNING id, created_at, content, sender_id, receiver_id
             `;
-            const messageResult = await pool.query(messageQuery, [conversationId, sender_id, receiver_id, content]);
+            
+            const messageResult = await pool.query(messageQuery, [
+                conversation_id, 
+                sender_id, 
+                receiver_id, 
+                content
+            ]);
 
-            res.json({
+            console.log('Message sent successfully:', messageResult.rows[0]);
+
+            return res.status(200).json({
                 success: true,
                 message: {
                     id: messageResult.rows[0].id,
-                    conversation_id: conversationId,
+                    conversation_id,
                     sender_id,
                     receiver_id,
-                    content,
+                    content: messageResult.rows[0].content,
                     created_at: messageResult.rows[0].created_at
                 }
             });
         } catch (error) {
             console.error('Error sending message:', error);
-            res.status(500).json({ success: false, message: 'Erreur lors de l\'envoi du message' });
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Erreur lors de l\'envoi du message',
+                error: error.message
+            });
         }
     }
 
@@ -430,6 +464,142 @@ class MessagesController {
         } catch (error) {
             console.error('Error reporting conversation:', error);
             res.status(500).json({ success: false, message: 'Erreur lors du signalement de la conversation' });
+        }
+    }
+
+    // Récupérer les professionnels disponibles
+    static async getAvailableProfessionals(req, res) {
+        try {
+            const query = `
+                SELECT 
+                    u.id,
+                    u.first_name,
+                    u.last_name,
+                    u.role as type,
+                    u.phone_number,
+                    u.email,
+                    u.permission,
+                    u.specialite
+                FROM users u
+                WHERE u.role = 'pro'
+                AND u.permission = true
+                AND u.status = 'active'
+                ORDER BY u.first_name ASC
+            `;
+            
+            const result = await pool.query(query);
+            
+            return res.status(200).json({
+                success: true,
+                professionals: result.rows
+            });
+        } catch (error) {
+            console.error('Error getting available professionals:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Erreur lors de la récupération des professionnels'
+            });
+        }
+    }
+
+    // Démarrer une nouvelle conversation avec un professionnel
+    static async startConversation(req, res) {
+        const { professional_id } = req.body;
+        const userId = req.user.id;
+
+        try {
+            console.log('Starting conversation with:', { userId, professional_id });
+
+            // Vérifier si le professionnel existe et est disponible
+            const professionalQuery = `
+                SELECT id, first_name, last_name, role as type, specialite 
+                FROM users 
+                WHERE id = $1 
+                AND role = 'pro' 
+                AND permission = true 
+                AND status = 'active'
+            `;
+            const professionalResult = await pool.query(professionalQuery, [professional_id]);
+
+            if (professionalResult.rows.length === 0) {
+                console.log('Professional not found or not available:', professional_id);
+                return res.status(404).json({
+                    success: false,
+                    message: 'Professionnel non trouvé ou non disponible'
+                });
+            }
+
+            // Vérifier si une conversation existe déjà
+            const existingConversationQuery = `
+                SELECT id FROM conversations 
+                WHERE (user1_id = $1 AND user2_id = $2) 
+                OR (user1_id = $2 AND user2_id = $1)
+            `;
+            const existingConversation = await pool.query(existingConversationQuery, [userId, professional_id]);
+
+            let conversationId;
+            if (existingConversation.rows.length > 0) {
+                conversationId = existingConversation.rows[0].id;
+                console.log('Existing conversation found:', conversationId);
+            } else {
+                // Créer une nouvelle conversation
+                const newConversationQuery = `
+                    INSERT INTO conversations (user1_id, user2_id)
+                    VALUES ($1, $2)
+                    RETURNING id
+                `;
+                const newConversation = await pool.query(newConversationQuery, [userId, professional_id]);
+                conversationId = newConversation.rows[0].id;
+                console.log('New conversation created:', conversationId);
+            }
+
+            // Récupérer les informations de la conversation
+            const conversationQuery = `
+                SELECT 
+                    c.id,
+                    CASE 
+                        WHEN c.user1_id = $1 THEN c.user2_id
+                        ELSE c.user1_id
+                    END as participant_id,
+                    CASE 
+                        WHEN c.user1_id = $1 THEN CONCAT(u2.first_name, ' ', u2.last_name)
+                        ELSE CONCAT(u1.first_name, ' ', u1.last_name)
+                    END as participant_name,
+                    CASE 
+                        WHEN c.user1_id = $1 THEN u2.role
+                        ELSE u1.role
+                    END as participant_type,
+                    NULL as last_message,
+                    NULL as last_message_time,
+                    0 as unread_count
+                FROM conversations c
+                JOIN users u1 ON c.user1_id = u1.id
+                JOIN users u2 ON c.user2_id = u2.id
+                WHERE c.id = $2
+            `;
+            const conversationResult = await pool.query(conversationQuery, [userId, conversationId]);
+
+            if (conversationResult.rows.length === 0) {
+                console.log('Conversation not found after creation:', conversationId);
+                return res.status(404).json({
+                    success: false,
+                    message: 'Conversation non trouvée'
+                });
+            }
+
+            console.log('Conversation details:', conversationResult.rows[0]);
+
+            return res.status(200).json({
+                success: true,
+                conversation: conversationResult.rows[0]
+            });
+        } catch (error) {
+            console.error('Error in startConversation:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Erreur lors de la création de la conversation',
+                error: error.message
+            });
         }
     }
 }

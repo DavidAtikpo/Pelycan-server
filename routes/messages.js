@@ -1,10 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const messagesController = require('../controllers/messagesController');
-const authenticate = require('../middleware/authenticate');
+const { authMiddleware } = require('../middleware/authMiddleware');
 
 // Toutes les routes nécessitent une authentification
-router.use(authenticate);
+router.use(authMiddleware);
+
+// Récupérer les professionnels disponibles
+router.get('/professionals/available', messagesController.getAvailableProfessionals);
+
+// Démarrer une nouvelle conversation
+router.post('/start-conversation', messagesController.startConversation);
 
 // Récupérer toutes les conversations
 router.get('/conversations', messagesController.getConversations);

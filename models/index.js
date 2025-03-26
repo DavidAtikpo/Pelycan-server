@@ -71,11 +71,11 @@ fs.readdirSync(__dirname)
     });
 
 // Suppression de la duplication des associations
-Object.keys(db).forEach(modelName => {
-  if (db[modelName].associate) {
-    db[modelName].associate(db);
-  }
-});
+// Object.keys(db).forEach(modelName => {
+//   if (db[modelName].associate) {
+//     db[modelName].associate(db);
+//   }
+// });
 
 // Fonction unifiée pour l'initialisation de la base de données
 const initializeDatabase = async () => {

@@ -118,7 +118,7 @@ const createDon = async (req, res) => {
       quantite || null,
       photos || [],
       localisation,
-      'en_attente',
+      'disponible',
       now,
       now,
       etat || 'neuf'
@@ -201,7 +201,7 @@ const updateDonStatus = async (req, res) => {
     const { status } = req.body;
     
     // Vérifier si le statut est valide
-    if (!status || !['en_attente', 'recu', 'refuse'].includes(status)) {
+    if (!status || !['disponible', 'reserve', 'attribue'].includes(status)) {
       return res.status(400).json({ message: 'Statut invalide' });
     }
     

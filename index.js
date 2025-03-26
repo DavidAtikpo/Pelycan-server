@@ -34,30 +34,30 @@ console.log('Variables d\'environnement chargées:', {
 });
 
 // Test de la connexion à la base de données et synchronisation des modèles
-const initializeDatabase = async () => {
-    try {
-        // Test de connexion
-        await db.sequelize.authenticate();
-        console.log('✅ Connexion établie avec:', {
-            database: db.sequelize.config.database,
-            host: db.sequelize.config.host,
-            username: db.sequelize.config.username
-        });
+// const initializeDatabase = async () => {
+//     try {
+//         // Test de connexion
+//         await db.sequelize.authenticate();
+//         console.log('✅ Connexion établie avec:', {
+//             database: db.sequelize.config.database,
+//             host: db.sequelize.config.host,
+//             username: db.sequelize.config.username
+//         });
         
-        // Synchroniser les modèles
-        await db.sequelize.sync({ 
-            force: process.env.NODE_ENV === 'development' // Force uniquement en développement
-        });
-        console.log('✅ Modèles synchronisés avec la base de données');
-    } catch (error) {
-        console.error('❌ Erreur de connexion:', error.message);
-        console.error('Configuration utilisée:', db.sequelize.config);
-        process.exit(1);
-    }
-};
+//         // Synchroniser les modèles
+//         await db.sequelize.sync({ 
+//             force: process.env.NODE_ENV === 'development' // Force uniquement en développement
+//         });
+//         console.log('✅ Modèles synchronisés avec la base de données');
+//     } catch (error) {
+//         console.error('❌ Erreur de connexion:', error.message);
+//         console.error('Configuration utilisée:', db.sequelize.config);
+//         process.exit(1);
+//     }
+// };
 
 // Initialiser la base de données avant de démarrer le serveur
-initializeDatabase();
+// initializeDatabase();
 
 // Routes publiques (auth)
 const authRoutes = require('./routes/authRoutes');
@@ -69,10 +69,12 @@ const structuresRoutes = require('./routes/structuresRoutes');
 const hebergementsRoutes = require('./routes/hebergementsRoutes');
 const demandesRoutes = require('./routes/demandesRoutes');
 const messagesRoutes = require('./routes/messagesRoutes');
+const messages = require('./routes/messages');
 const donsRoutes = require('./routes/donsRoutes');
 const demandesAjoutLogementRoutes = require('./routes/demandesAjoutLogementRoutes');
 const uploadsRoutes = require('./routes/uploadsRoutes');
 const alertsRoutes = require('./routes/alerts');
+
 
 app.use('/api/logements', logementsRoutes);
 app.use('/api/structures', structuresRoutes);
@@ -83,6 +85,7 @@ app.use('/api/dons', donsRoutes);
 app.use('/api/demandes-ajout-logement', demandesAjoutLogementRoutes);
 app.use('/api/uploads', uploadsRoutes);
 app.use('/api/alerts', alertsRoutes);
+
 
 // Routes protégées
 const adminRoutes = require('./routes/adminRoutes');

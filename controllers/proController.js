@@ -264,7 +264,8 @@ const proController = {
             const query = `
                 SELECT 
                     id,
-                    full_name,
+                    last_name,
+                    first_name,
                     email,
                     phone_number,
                     speciality,
@@ -299,22 +300,24 @@ const proController = {
     // Mettre à jour le profil du professionnel
     async updateProfile(req, res) {
         const proId = req.user.id;
-        const { full_name, phone_number, speciality, bio } = req.body;
+        const { last_name, first_name, phone_number, speciality, bio } = req.body;
 
         try {
             const query = `
                 UPDATE users
                 SET 
-                    full_name = COALESCE($1, full_name),
-                    phone_number = COALESCE($2, phone_number),
-                    speciality = COALESCE($3, speciality),
-                    bio = COALESCE($4, bio),
+                    last_name = COALESCE($1, last_name),
+                    first_name = COALESCE($2, first_name),
+                    phone_number = COALESCE($3, phone_number),
+                    speciality = COALESCE($4, speciality),
+                    bio = COALESCE($5, bio),
                     updated_at = NOW()
-                WHERE id = $5 AND role = 'pro'
-                RETURNING id, full_name, email, phone_number, speciality, bio`;
+                WHERE id = $6 AND role = 'pro'
+                RETURNING id, last_name, first_name, email, phone_number, speciality, bio`;
 
             const result = await pool.query(query, [
-                full_name,
+                last_name,
+                first_name,
                 phone_number,
                 speciality,
                 bio,

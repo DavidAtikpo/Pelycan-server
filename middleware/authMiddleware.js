@@ -31,9 +31,11 @@ const authMiddleware = async (req, res, next) => {
             id: result.rows[0].id,
             email: result.rows[0].email,
             role: result.rows[0].role,
-            name: `${result.rows[0].first_name} ${result.rows[0].last_name}`
+            firstName: result.rows[0].first_name,
+            lastName: result.rows[0].last_name
         };
 
+        console.log('User authentifié:', req.user);
         next();
     } catch (error) {
         if (error instanceof jwt.JsonWebTokenError) {

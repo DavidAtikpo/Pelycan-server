@@ -12,25 +12,35 @@ class HebergementsController {
     static async getAllHebergements(req, res) {
         try {
             const query = `
-                SELECT 
-                    id, 
-                    nom, 
-                    description, 
-                    adresse, 
-                    ville, 
-                    code_postal, 
-                    places_disponibles, 
-                    type_hebergement, 
-                    duree_max_sejour,
-                    public_cible,
-                    conditions_acces,
-                    services_inclus,
-                    image_url,
-                    date_creation
-                FROM hebergements_temporaires 
-                WHERE disponible = true 
-                ORDER BY date_creation DESC
-            `;
+            SELECT 
+                id, 
+                proprietaire_id,
+                titre,
+                adresse,
+                code_postal,
+                ville,
+                type,
+                capacite,
+                surface,
+                description,
+                equipements,
+                disponibilite,
+                status,
+                photos,
+                type_hebergement,
+                date_debut,
+                date_fin,
+                conditions_temporaire,
+                created_at,
+                updated_at
+            FROM logements 
+            WHERE disponibilite = true 
+            AND permission = true
+            AND type_hebergement = 'temporaire'
+            AND date_debut <= CURRENT_DATE 
+            AND date_fin >= CURRENT_DATE
+            ORDER BY created_at DESC
+        `;
             
             const result = await pool.query(query);
             
